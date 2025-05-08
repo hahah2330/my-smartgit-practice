@@ -1,0 +1,118 @@
+package com.xtx.thirdday.oracleDemo;
+
+import com.xtx.thirdday.demo4.Dao.demo1Dao;
+import com.xtx.thirdday.demo4.Model.demo1Entity;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+import us.codecraft.webmagic.Page;
+import us.codecraft.webmagic.Request;
+import us.codecraft.webmagic.Site;
+import us.codecraft.webmagic.Spider;
+import us.codecraft.webmagic.processor.PageProcessor;
+import us.codecraft.webmagic.utils.HttpConstant;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class demo1 implements PageProcessor {
+    Map<String, demo1Entity> map = new HashMap<>();
+    public static Request GetRequest(String URL){
+        try {
+            Request getRequest = new Request(URL);
+            getRequest.setMethod(HttpConstant.Method.GET);
+            getRequest.addHeader("Content-Type", "application/json");
+            return getRequest;
+        }catch (Exception e){
+            System.out.println("请求失败");
+            return null;
+        }
+    }
+    @Override
+    public Site getSite() {
+        return site;
+    }
+    // 配置站点信息
+    private Site site = Site.me()
+            .setRetryTimes(3)
+            .setSleepTime(1000)
+            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
+    public static void main(String[] args) {
+
+        // 创建爬虫
+        Spider.create(new demo1())
+                .addRequest(GetRequest("https://www.gdwc.gov.cn/zfxxgk/zjswcsczz/index.html"))
+                .thread(2)
+                .run();
+    }
+    public void process(Page page) {
+            // 创建实体对象并插入数据库
+            String url = page.getUrl().toString();
+            //主页
+            if(!url.contains("content")){
+                demo1Entity entity = new demo1Entity();
+                //        提取正文
+                Document content = Jsoup.parse(page.getRawText());
+                Elements headElements = content.select("head");
+                System.out.println("headElements:"+headElements);
+                Elements h3Elements = headElements.select("meta[name=SiteName]");
+                String h3realTitle = h3Elements.attr("content");
+                Elements elements = content.select("ul.list li");
+//                String title = "";
+//                String time ="";
+//                String detailUrl="";
+                    for (Element element1 : elements) {
+                        Elements elements1 = element1.select("a");
+
+                        String title = elements1.attr("title").trim();
+                        String detailUrl = elements1.attr("href");
+                        String time = element1.select("span.time").text();
+//                            page.addTargetRequest(GetRequest(detailUrl));
+//                        System.out.println("网站名称："+h3realTitle+"\n"+"列表标题："+title+"\n"+"详情链接："+detailUrl+"\n"+"创建时间："+time);
+//                            保存部分
+
+//                        entity.setId(java.util.UUID.randomUUID().toString()); // 生成唯一ID
+                        entity.setId(detailUrl); // 生成唯一ID
+                        entity.setSource_name(h3realTitle);
+                        entity.setDetail_link(detailUrl);
+                        entity.setList_title(title);
+                        entity.setPage_time(time);
+                        entity.setCreate_by("肖廷鑫"); // 设置创建者
+                        //去重
+                        int select = new demo1Dao().select(entity);
+                        if (select==0){
+                            map.put(detailUrl, entity);
+//                         提取详情页
+                            page.addTargetRequest(detailUrl);
+                          }
+                        }
+
+
+            }else {
+                demo1Entity entity = map.get(url);
+//              详情页
+//              标题
+//              对img标签进行处理
+                Document content = Jsoup.parse(page.getRawText());
+                Elements imgs = content.select("img");
+                for (Element img : imgs) {
+                    String src = img.attr("src").trim();
+                    if (!src.contains("http")) {
+                        src = "https://www.gdwc.gov.cn" + src;
+                        img.attr("src", src);
+                    }
+                }
+                Elements titleElements = content.select("div.con");
+                Elements title = titleElements.select("h3");
+//              正文
+                Elements detail = content.select("div.article");
+                entity.setDetail_title(title.text());
+                entity.setDetail_content(detail.outerHtml());
+
+                // 调用DAO插入数据
+                demo1Dao dao = new demo1Dao();
+                dao.insert(entity);
+            }
+    }
+}
